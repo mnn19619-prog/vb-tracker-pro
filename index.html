@@ -88,9 +88,11 @@ const linP=(rot,cp)=>(cp+rot)%6;
 function eligible(game,t,lp){
   const tm=game.teams[t];
   const onC=new Set(tm.lineup);
+  const libRi=game.cfg[t].roster.findIndex(p=>p.isLibero); // handled separately
   const n=game.cfg[t].roster.length;
   return [...Array(n).keys()].filter(r=>{
     if(onC.has(r))return false;            // on court → skip
+    if(r===libRi)return false;             // libero → separate mechanism only
     const lk=tm.locks[r];
     if(lk!==undefined)return lk===lp;     // locked player → only their position
     const sp=tm.start.indexOf(r);
