@@ -493,7 +493,7 @@ function App(){
   });
 
   // ── ROSTER SETUP ──────────────────────────────────────────────────────────
-  if(phase==='roster') return h('div',{id:'setup',className:rotated?'rotated':''},
+  if(phase==='roster') return h('div',{key:'roster',id:'setup',className:rotated?'rotated':''},
     h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
       h('h2',{style:{flex:1,fontSize:17,fontWeight:500,color:'var(--text)'}},'VB Tracker Pro'),
       h('button',{onClick:()=>setRotated(r=>!r),style:ctrl(rotated,'#1D9E75')},rotated?'↻ on':'↻ off'),
@@ -524,7 +524,7 @@ function App(){
   );
 
   // ── LINEUP SETUP ──────────────────────────────────────────────────────────
-  if(phase==='lineup') return h('div',{id:'setup',className:rotated?'rotated':''},
+  if(phase==='lineup') return h('div',{key:'lineup',id:'setup',className:rotated?'rotated':''},
     h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
       h('button',{onClick:()=>setPhase('roster'),style:{padding:'4px 10px',fontSize:13}},'← Back'),
       h('h2',{style:{flex:1,fontSize:17,fontWeight:500,color:'var(--text)'}},'Starting Lineup'),
@@ -567,7 +567,7 @@ function App(){
 
   // ── GAME ──────────────────────────────────────────────────────────────────
   if(!game)return null;
-  return h('div',{id:'game',className:rotated?'rotated':''},
+  return h('div',{key:'game',id:'game',className:rotated?'rotated':''},
     // top bar
     h('div',{style:{flexShrink:0,background:'var(--bg-surf)',borderRadius:8,padding:'4px 8px',display:'flex',flexDirection:'column',gap:4}},
       // scores
