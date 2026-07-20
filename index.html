@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1D9E75">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="VB Pro">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <title>VB Tracker Pro</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{width:100%;height:100%;overflow:hidden}
+    :root{
+      --bg-body:#fff;--bg-surf:#f4f4f4;--bg-card:#fff;--bg-chip:#f0f0f0;--bg-inp:#fff;
+      --text:#000;--text-sub:#555;--text-mut:#888;--bdr:#ccc;--bdr-card:#ddd;--net:#ccc;
+    }
+    html[data-dark]{
+      --bg-body:#1a1a1a;--bg-surf:#252525;--bg-card:#252525;--bg-chip:#2a2a2a;--bg-inp:#2a2a2a;
+      --text:#f0f0f0;--text-sub:#bbb;--text-mut:#999;--bdr:#444;--bdr-card:#444;--net:#555;
+    }
+    body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg-body);color:var(--text)}
+    input,select{display:block;width:100%;padding:7px 9px;font-size:13px;font-family:inherit;
+      border:1px solid var(--bdr);border-radius:7px;background:var(--bg-inp);color:var(--text);outline:none}
+    input:focus,select:focus{border-color:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.15)}
+    button{font-family:inherit;font-size:13px;border-radius:8px;border:1px solid var(--bdr);
+      background:transparent;color:var(--text);cursor:pointer;transition:opacity .1s}
+    button:active{opacity:.7}
+    #setup{height:100%;overflow-y:auto;padding:12px;max-width:520px;margin:0 auto}
+    #setup.rotated{position:fixed;top:50%;left:50%;right:unset;bottom:unset;
+      width:100dvh;height:100dvw;padding:12px;transform:translate(-50%,-50%) rotate(90deg);overflow-y:auto}
+    #game{position:fixed;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:4px;overflow:hidden;
+      padding:max(env(safe-area-inset-top),5px) max(env(safe-area-inset-right),7px)
+              max(env(safe-area-inset-bottom),5px) max(env(safe-area-inset-left),7px)}
+    #game.rotated{top:50%;left:50%;right:unset;bottom:unset;
+      width:100dvh;height:100dvw;padding:5px 7px;transform:translate(-50%,-50%) rotate(90deg)}
+    /* badges */
+    .bdg{display:inline-block;font-size:9px;font-weight:600;border-radius:3px;padding:1px 4px;flex-shrink:0;line-height:1.4}
+    .bdg-srv{background:#FAEEDA;color:#854F0B;border:1px solid #BA7517}
+    .bdg-sub{background:#EEEDFE;color:#534AB7;border:1px solid #7F77DD}
+    .bdg-lib{background:#E6F4FF;color:#0052A3;border:1px solid #5BA4E0}
+    .bdg-new{background:#E8F8EE;color:#1D7A50;border:1px solid #5CC48A}
+    html[data-dark] .bdg-srv{background:#412402;color:#FAC775;border-color:#EF9F27}
+    html[data-dark] .bdg-sub{background:#26215C;color:#CECBF6;border-color:#AFA9EC}
+    html[data-dark] .bdg-lib{background:#0A2540;color:#7AC5F8;border-color:#3A8FD0}
+    html[data-dark] .bdg-new{background:#0A2A18;color:#5CC48A;border-color:#3A9465}
+    /* chip highlight states */
+    .chip-srv{background:#FAEEDA!important;border-color:#BA7517!important}
+    .chip-srv .jnum{color:#633806}
+    html[data-dark] .chip-srv{background:#412402!important;border-color:#EF9F27!important}
+    html[data-dark] .chip-srv .jnum{color:#FAC775}
+    .chip-sub{border-color:#7F77DD!important}
+    html[data-dark] .chip-sub{border-color:#AFA9EC!important}
+    /* serving badge in court header */
+    .srv-badge{background:#FAEEDA;color:#854F0B;border:1px solid #BA7517;border-radius:4px;font-size:10px;padding:1px 5px;white-space:nowrap;display:inline-block;flex-shrink:0}
+    html[data-dark] .srv-badge{background:#412402;color:#FAC775;border-color:#EF9F27}
+    /* row widget */
+    .row{display:flex;gap:6px;align-items:center}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+
+let wl=null;
+async function acqWL(){try{if('wakeLock' in navigator)wl=await navigator.wakeLock.request('screen')}catch(e){}}
+function relWL(){if(wl){wl.release().catch(()=>{});wl=null}}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&window.__vbActive)acqWL()});
+
+// ─── constants ────────────────────────────────────────────────────────────────
+const ROMAN=['I','II','III','IV','V','VI'];
+const GA=[[4,3],[5,2],[0,1]]; // Team A court grid (posIdx)
+const GB=[[1,0],[2,5],[3,4]]; // Team B court grid (posIdx)
+const TC=['#1D9E75','#993C1D']; // team accent
+const TS=['#1D9E75','#D85A30']; // score colors
+
+// ─── game logic ───────────────────────────────────────────────────────────────
+// lineup position from court-grid posIdx + rotation
+const linP=(rot,cp)=>(cp+rot)%6;
+
+// which roster indices are eligible to sub INTO lineup position lp
+function eligible(game,t,lp){
+  const tm=game.teams[t];
+  const onC=new Set(tm.lineup);
+  const n=game.cfg[t].roster.length;
+  return [...Array(n).keys()].filter(r=>{
+    if(onC.has(r))return false;            // on court → skip
+    const lk=tm.locks[r];
+    if(lk!==undefined)return lk===lp;     // locked player → only their position
+    const sp=tm.start.indexOf(r);
+    if(sp!==-1)return sp===lp;            // original starter → only their position
+    return true;                           // fresh bench player → any position
+  });
+}
+
+// perform substitution: player 'incoming' enters lineup position lp
+function applySub(game,t,lp,incoming){
+  const tm=game.teams[t];
+  const nl=[...tm.lineup]; nl[lp]=incoming;
+  const nlk={...tm.locks};
+  // lock the incoming player if they're not a starter
+  if(tm.start.indexOf(incoming)===-1 && nlk[incoming]===undefined) nlk[incoming]=lp;
+  return{...game,teams:game.teams.map((x,i)=>i!==t?x:{...x,lineup:nl,locks:nlk})};
+}
+
+// swap both teams (for deciding set side switch)
+function swapSides(game){
+  return{...game,
+    cfg:[game.cfg[1],game.cfg[0]],
+    teams:[game.teams[1],game.teams[0]],
+    pts:[game.pts[1],game.pts[0]],
+    srv:1-game.srv};
+}
+
+// score a point
+function scorePoint(game,t){
+  const pts=[...game.pts]; pts[t]++;
+  let rots=game.teams.map(tm=>tm.rotation), srv=game.srv;
+  if(t!==game.srv){
+    srv=t;
+    rots=game.teams.map((tm,i)=>i===t?(tm.rotation+1)%6:tm.rotation);
+  }
+  return{...game,pts,srv,
+    teams:game.teams.map((tm,i)=>({...tm,rotation:rots[i]}))};
+}
+
+// canvas font size: largest font where longest label fits chipWidth
+function calcFont(labels,chipW){
+  const cv=document.createElement('canvas'),ctx=cv.getContext('2d');
+  const longest=labels.reduce((a,b)=>a.length>=b.length?a:b,'');
+  for(let s=36;s>=8;s--){
+    ctx.font=`600 ${s}px system-ui,-apple-system,sans-serif`;
+    if(ctx.measureText(longest).width<=chipW-10)return s;
+  }
+  return 8;
+}
+
+// ─── React ────────────────────────────────────────────────────────────────────
+const{useState,useRef,useEffect,createElement:h}=React;
+
+// ── Chip ──────────────────────────────────────────────────────────────────────
+function Chip({jersey,name,posLabel,isServer,isSub,isLibero,accent,onTap,fontSize}){
+  const srv=isServer;
+  const cls=['chip-base',srv?'chip-srv':isSub?'chip-sub':''].filter(Boolean).join(' ');
+  return h('div',{onClick:onTap,className:cls,style:{
+    flex:1,minWidth:0,height:'100%',cursor:'pointer',
+    background:srv?undefined:'var(--bg-chip)',
+    border:`1.5px solid ${srv?undefined:accent}`,
+    borderRadius:8,padding:'3px 3px 3px 3px',textAlign:'center',
+    display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',overflow:'hidden',
+  }},
+    // top label row: position + badges
+    h('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:2,marginBottom:1}},
+      h('span',{style:{fontSize:9,color:'var(--text-mut)',lineHeight:1}},posLabel),
+      isServer&&h('span',{className:'bdg bdg-srv'},'★'),
+      isSub&&h('span',{className:'bdg bdg-sub'},'SUB'),
+      isLibero&&h('span',{className:'bdg bdg-lib'},'LIB'),
+    ),
+    // jersey number — primary
+    h('div',{className:'jnum',style:{
+      fontSize:fontSize||20,fontWeight:600,lineHeight:1.1,
+      color:'var(--text)',whiteSpace:'nowrap',maxWidth:'100%',overflow:'hidden',
+    }},'#'+jersey),
+    // name — optional secondary
+    name&&h('div',{style:{
+      fontSize:9,color:'var(--text-mut)',lineHeight:1.1,marginTop:1,
+      whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',width:'100%',textAlign:'center',
+    }},name),
+  );
+}
+
+// ── Court ─────────────────────────────────────────────────────────────────────
+function Court({game,onTapChip}){
+  const ref=useRef(null);
+  const[fs,setFs]=useState(20);
+  const names=game.cfg.map(c=>c.name);
+
+  useEffect(()=>{
+    if(!ref.current)return;
+    const calc=()=>{
+      if(!ref.current)return;
+      const w=ref.current.offsetWidth-14; // padding
+      const cw=(w-22-9)/4;               // 22px net, 3×3px gaps
+      const labels=game.cfg.flatMap((c,t)=>
+        game.teams[t].lineup.map(ri=>'#'+c.roster[ri]?.jersey||'')
+      );
+      setFs(calcFont(labels,cw));
+    };
+    calc();
+    const ro=new ResizeObserver(calc);
+    ro.observe(ref.current);
+    return()=>ro.disconnect();
+  },[game.teams.map(t=>t.lineup.join()).join(),game.cfg]);
+
+  return h('div',{ref,style:{
+    flex:1,minHeight:0,background:'var(--bg-card)',border:'1px solid var(--bdr-card)',
+    borderRadius:10,padding:'5px 7px',display:'flex',flexDirection:'column',gap:3,
+  }},
+    // header
+    h('div',{style:{display:'flex',alignItems:'center',gap:4,flexShrink:0}},
+      // Team A info
+      h('div',{style:{flex:1,display:'flex',alignItems:'center',gap:3,minWidth:0,overflow:'hidden'}},
+        h('div',{style:{width:7,height:7,borderRadius:'50%',background:TC[0],flexShrink:0}}),
+        h('span',{style:{fontSize:12,fontWeight:500,color:'var(--text)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},names[0]),
+        game.srv===0&&h('span',{className:'srv-badge'},'serving'),
+      ),
+      h('div',{style:{width:22,flexShrink:0}}),
+      // Team B info
+      h('div',{style:{flex:1,display:'flex',alignItems:'center',gap:3,justifyContent:'flex-end',minWidth:0,overflow:'hidden'}},
+        game.srv===1&&h('span',{className:'srv-badge'},'serving'),
+        h('span',{style:{fontSize:12,fontWeight:500,color:'var(--text)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},names[1]),
+        h('div',{style:{width:7,height:7,borderRadius:'50%',background:TC[1],flexShrink:0}}),
+      ),
+    ),
+    // rows
+    ...[0,1,2].map(row=>
+      h('div',{key:row,style:{flex:1,minHeight:0,display:'flex',gap:3}},
+        // Team A chips
+        ...[0,1].map(col=>{
+          const cp=GA[row][col];
+          const lp=linP(game.teams[0].rotation,cp);
+          const ri=game.teams[0].lineup[lp];
+          const pl=game.cfg[0].roster[ri];
+          const isServer=cp===0&&game.srv===0;
+          const isSub=game.teams[0].locks[ri]!==undefined;
+          const isLibero=pl?.isLibero||false;
+          return h(Chip,{key:col,jersey:pl?.jersey||'?',name:pl?.name||'',
+            posLabel:ROMAN[lp],isServer,isSub,isLibero,accent:TC[0],fontSize:fs,
+            onTap:()=>onTapChip(0,lp)});
+        }),
+        // NET
+        h('div',{style:{width:22,flexShrink:0,display:'flex',alignItems:'stretch',justifyContent:'center',padding:'2px 0'}},
+          h('div',{style:{width:3,background:'var(--net)',borderRadius:2}})),
+        // Team B chips
+        ...[0,1].map(col=>{
+          const cp=GB[row][col];
+          const lp=linP(game.teams[1].rotation,cp);
+          const ri=game.teams[1].lineup[lp];
+          const pl=game.cfg[1].roster[ri];
+          const isServer=cp===0&&game.srv===1;
+          const isSub=game.teams[1].locks[ri]!==undefined;
+          const isLibero=pl?.isLibero||false;
+          return h(Chip,{key:col,jersey:pl?.jersey||'?',name:pl?.name||'',
+            posLabel:ROMAN[lp],isServer,isSub,isLibero,accent:TC[1],fontSize:fs,
+            onTap:()=>onTapChip(1,lp)});
+        })
+      )
+    )
+  );
+}
+
+// ── SubPanel ──────────────────────────────────────────────────────────────────
+function SubPanel({game,sel,onConfirm,onCancel}){
+  // sel = {t, lp}
+  const{t,lp}=sel;
+  const team=game.teams[t];
+  const roster=game.cfg[t].roster;
+  const currentRi=team.lineup[lp];
+  const current=roster[currentRi];
+  const elg=eligible(game,t,lp);
+
+  function badge(ri){
+    if(team.start[lp]===ri) return h('span',{className:'bdg bdg-srv'},'original');
+    if(team.locks[ri]!==undefined) return h('span',{className:'bdg bdg-sub'},'↩'+ROMAN[lp]);
+    return h('span',{className:'bdg bdg-new'},'new');
+  }
+
+  return h('div',{style:{
+    flexShrink:0,background:'var(--bg-card)',border:'1.5px solid var(--bdr)',
+    borderRadius:10,padding:'8px 10px',
+  }},
+    h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}},
+      h('div',{style:{fontSize:12,color:'var(--text-sub)'}},
+        `Sub at position ${ROMAN[lp]} — #${current?.jersey} ${current?.name||''}`.trim()),
+      h('button',{onClick:onCancel,style:{padding:'2px 10px',fontSize:13}},'✕')
+    ),
+    elg.length===0
+      ? h('div',{style:{fontSize:12,color:'var(--text-mut)',padding:'6px 0'}},'No eligible substitutes')
+      : h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+          elg.map(ri=>{
+            const pl=roster[ri];
+            return h('button',{key:ri,onClick:()=>onConfirm(ri),style:{
+              display:'flex',flexDirection:'column',alignItems:'center',
+              padding:'8px 14px',border:`1.5px solid ${TC[t]}`,borderRadius:8,
+              background:'var(--bg-surf)',gap:2,minWidth:60,
+            }},
+              h('span',{style:{fontSize:18,fontWeight:700,color:'var(--text)'}},'#'+pl.jersey),
+              pl.name&&h('span',{style:{fontSize:10,color:'var(--text-mut)'}},(pl.name)),
+              badge(ri),
+            );
+          })
+        )
+  );
+}
+
+// ── RosterRow ─────────────────────────────────────────────────────────────────
+function RosterRow({player,onChange,onRemove,idx}){
+  return h('div',{style:{display:'flex',gap:5,marginBottom:5,alignItems:'center'}},
+    h('input',{value:player.jersey,onChange:e=>onChange({...player,jersey:e.target.value}),
+      placeholder:'#',style:{width:48,textAlign:'center',padding:'6px 4px',flexShrink:0}}),
+    h('input',{value:player.name,onChange:e=>onChange({...player,name:e.target.value}),
+      placeholder:'Name (optional)',style:{flex:1}}),
+    h('label',{style:{display:'flex',alignItems:'center',gap:3,fontSize:12,color:'var(--text-sub)',flexShrink:0,cursor:'pointer'}},
+      h('input',{type:'checkbox',checked:player.isLibero,
+        onChange:e=>onChange({...player,isLibero:e.target.checked}),style:{width:'auto',display:'inline'}}),
+      'LIB'
+    ),
+    h('button',{onClick:onRemove,style:{padding:'4px 8px',color:'#c00',borderColor:'#c00',flexShrink:0}},'×'),
+  );
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const[phase,setPhase]=useState('roster'); // 'roster' | 'lineup' | 'game'
+  const[dark,setDark]=useState(()=>{
+    const s=localStorage.getItem('vbp-dark');
+    return s!==null?s==='1':window.matchMedia('(prefers-color-scheme:dark)').matches;
+  });
+  const[rotated,setRotated]=useState(false);
+
+  // Roster setup
+  const[tNames,setTNames]=useState(['Team A','Team B']);
+  const[rosters,setRosters]=useState([
+    [{jersey:'',name:'',isLibero:false}],
+    [{jersey:'',name:'',isLibero:false}],
+  ]);
+
+  // Lineup setup: [t][pos] = rosterIndex | null
+  const[lineups,setLineups]=useState([[null,null,null,null,null,null],[null,null,null,null,null,null]]);
+  const[firstSrv,setFirstSrv]=useState(0);
+
+  // Game
+  const[game,setGame]=useState(null);
+  const[hist,setHist]=useState([]);
+  const[subSel,setSubSel]=useState(null); // {t,lp}
+
+  useEffect(()=>{
+    document.documentElement.toggleAttribute('data-dark',dark);
+    localStorage.setItem('vbp-dark',dark?'1':'0');
+  },[dark]);
+
+  useEffect(()=>{
+    window.__vbActive=phase==='game';
+    if(phase==='game')acqWL(); else relWL();
+  },[phase]);
+
+  useEffect(()=>{
+    if(phase!=='game')return;
+    const u=()=>setRotated(window.innerHeight>window.innerWidth);
+    u(); window.addEventListener('resize',u); window.addEventListener('orientationchange',u);
+    return()=>{window.removeEventListener('resize',u);window.removeEventListener('orientationchange',u)};
+  },[phase]);
+
+  function addPlayer(t){
+    if(rosters[t].length>=9)return;
+    setRosters(r=>r.map((rs,i)=>i!==t?rs:[...rs,{jersey:'',name:'',isLibero:false}]));
+  }
+  function updatePlayer(t,idx,p){
+    setRosters(r=>r.map((rs,i)=>i!==t?rs:rs.map((pl,j)=>j!==idx?pl:p)));
+  }
+  function removePlayer(t,idx){
+    setRosters(r=>r.map((rs,i)=>i!==t?rs:rs.filter((_,j)=>j!==idx)));
+    // clear lineup if this player was assigned
+    setLineups(l=>l.map((lu,i)=>i!==t?lu:lu.map(v=>v===idx?null:v>idx?v-1:v)));
+  }
+
+  function goToLineup(){
+    // Validate: each team needs ≥ 6 players with jersey numbers
+    for(let t=0;t<2;t++){
+      const valid=rosters[t].filter(p=>p.jersey.trim());
+      if(valid.length<6){alert(`${tNames[t]} needs at least 6 players with jersey numbers.`);return;}
+    }
+    setPhase('lineup');
+  }
+
+  function startGame(){
+    // Validate lineups
+    for(let t=0;t<2;t++){
+      const lu=lineups[t];
+      if(lu.some(v=>v===null)){alert(`${tNames[t]}: please assign all 6 positions.`);return;}
+      if(new Set(lu).size<6){alert(`${tNames[t]}: each player can only start in one position.`);return;}
+    }
+    const teams=[0,1].map(t=>({
+      start:[...lineups[t].map(Number)],   // immutable starting lineup
+      lineup:[...lineups[t].map(Number)],  // mutable current lineup
+      rotation:0,
+      locks:{},                            // subLocks: {rosterIdx: lineupPos}
+    }));
+    const g={
+      cfg:[0,1].map(t=>({name:tNames[t],roster:rosters[t]})),
+      teams,pts:[0,0],srv:firstSrv,
+    };
+    setGame(g);setHist([]);setSubSel(null);setPhase('game');
+  }
+
+  function score(t){
+    setSubSel(null);setHist(h=>[...h,game]);
+    setGame(prev=>scorePoint(prev,t));
+  }
+  function undo(){
+    if(!hist.length)return;
+    setSubSel(null);setGame(hist[hist.length-1]);setHist(h=>h.slice(0,-1));
+  }
+  function handleSwapSides(){
+    if(!window.confirm('Switch sides? (e.g. deciding set)'))return;
+    setHist(h=>[...h,game]);setGame(prev=>swapSides(prev));setSubSel(null);
+  }
+  function rotateTeam(t){
+    setSubSel(null);setHist(h=>[...h,game]);
+    setGame(prev=>({...prev,teams:prev.teams.map((tm,i)=>i!==t?tm:{...tm,rotation:(tm.rotation+1)%6})}));
+  }
+  function tapChip(t,lp){
+    if(subSel&&subSel.t===t&&subSel.lp===lp){setSubSel(null);return;}
+    setSubSel({t,lp});
+  }
+  function confirmSub(incoming){
+    setHist(h=>[...h,game]);
+    setGame(prev=>applySub(prev,subSel.t,subSel.lp,incoming));
+    setSubSel(null);
+  }
+
+  const ctrl=(active,ac)=>({
+    flex:1,padding:'4px 0',fontSize:12,fontWeight:500,whiteSpace:'nowrap',
+    border:`1.5px solid ${active?ac:'var(--bdr)'}`,
+    background:active?ac:'transparent',
+    color:active?'#fff':'var(--text-sub)',borderRadius:8,
+  });
+
+  // ── ROSTER SETUP ──────────────────────────────────────────────────────────
+  if(phase==='roster') return h('div',{id:'setup',className:rotated?'rotated':''},
+    h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
+      h('h2',{style:{flex:1,fontSize:17,fontWeight:500,color:'var(--text)'}},'VB Tracker Pro'),
+      h('button',{onClick:()=>setRotated(r=>!r),style:ctrl(rotated,'#1D9E75')},rotated?'↻ on':'↻ off'),
+      h('button',{onClick:()=>setDark(d=>!d),style:{...ctrl(false,''),flex:'none',padding:'4px 10px'}},dark?'☀':'☾'),
+    ),
+    h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}},
+      ...[0,1].map(t=>h('div',{key:t,style:{border:`2px solid ${TC[t]}`,borderRadius:10,padding:'10px 10px'}},
+        h('input',{value:tNames[t],onChange:e=>setTNames(n=>n.map((v,i)=>i===t?e.target.value:v)),
+          style:{marginBottom:8,fontWeight:500,fontSize:13},placeholder:`Team ${t?'B':'A'} name`}),
+        h('div',{style:{display:'flex',gap:4,marginBottom:5}},
+          h('span',{style:{width:48,fontSize:10,color:'var(--text-mut)',textAlign:'center',flexShrink:0}},'Jersey'),
+          h('span',{style:{flex:1,fontSize:10,color:'var(--text-mut)'}},'Name'),
+          h('span',{style:{width:36,fontSize:10,color:'var(--text-mut)',flexShrink:0}},'Lib'),
+          h('span',{style:{width:28,flexShrink:0}}),
+        ),
+        ...rosters[t].map((pl,pi)=>h(RosterRow,{key:pi,player:pl,idx:pi,
+          onChange:p=>updatePlayer(t,pi,p),
+          onRemove:()=>removePlayer(t,pi)})),
+        rosters[t].length<9&&h('button',{onClick:()=>addPlayer(t),
+          style:{width:'100%',padding:'5px 0',marginTop:4,fontSize:12,color:TC[t],borderColor:TC[t]}},
+          `+ Player (${rosters[t].length}/9)`),
+      ))
+    ),
+    h('div',{style:{background:'var(--bg-surf)',borderRadius:8,padding:'6px 10px',marginBottom:10,fontSize:11,color:'var(--text-mut)'}},
+      'Each team needs at least 6 players to start. Up to 3 can be bench/subs.'),
+    h('button',{onClick:goToLineup,style:{width:'100%',padding:'12px 0',background:'#1D9E75',
+      color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:600}},'Next → Assign Starting Lineup'),
+  );
+
+  // ── LINEUP SETUP ──────────────────────────────────────────────────────────
+  if(phase==='lineup') return h('div',{id:'setup',className:rotated?'rotated':''},
+    h('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:12}},
+      h('button',{onClick:()=>setPhase('roster'),style:{padding:'4px 10px',fontSize:13}},'← Back'),
+      h('h2',{style:{flex:1,fontSize:17,fontWeight:500,color:'var(--text)'}},'Starting Lineup'),
+    ),
+    h('div',{style:{display:'grid',gridTemplateColumns:'auto 1fr 1fr',gap:'6px 8px',alignItems:'center',marginBottom:14}},
+      // header
+      h('div',{style:{fontSize:11,color:'var(--text-mut)'}},'Pos'),
+      ...[0,1].map(t=>h('div',{key:t,style:{fontSize:12,fontWeight:500,color:TC[t],textAlign:'center'}},tNames[t])),
+      // rows for I–VI
+      ...ROMAN.map((pos,lp)=>[
+        h('div',{key:'l'+lp,style:{fontSize:13,fontWeight:500,color:'var(--text-mut)',textAlign:'center',paddingRight:4}},pos),
+        ...[0,1].map(t=>{
+          const used=new Set(lineups[t].filter((_,i)=>i!==lp).filter(v=>v!==null));
+          const opts=rosters[t].map((p,i)=>({p,i})).filter(({i})=>!used.has(i)&&p.jersey.trim()!==''.trim());
+          // filter to players with jersey numbers
+          const vopts=rosters[t].map((p,ri)=>({p,ri})).filter(({ri,p})=>p.jersey.trim()&&!used.has(ri));
+          return h('select',{key:t+lp,
+            value:lineups[t][lp]===null?'':lineups[t][lp],
+            onChange:e=>setLineups(l=>l.map((lu,i)=>i!==t?lu:lu.map((v,j)=>j!==lp?v:e.target.value===''?null:Number(e.target.value)))),
+            style:{fontSize:12}},
+            h('option',{value:''},'— select —'),
+            ...vopts.map(({p,ri})=>h('option',{key:ri,value:ri},`#${p.jersey}${p.name?' '+p.name:''}`))
+          );
+        })
+      ]).flat()
+    ),
+    h('div',{style:{marginBottom:12}},
+      h('div',{style:{fontSize:12,color:'var(--text-mut)',marginBottom:6}},'First serve'),
+      h('div',{style:{display:'flex',gap:8}},
+        ...[0,1].map(t=>h('button',{key:t,onClick:()=>setFirstSrv(t),style:{
+          flex:1,padding:'8px 0',fontSize:13,
+          background:firstSrv===t?(t===0?'#E1F5EE':'#FAECE7'):'transparent',
+          border:`1.5px solid ${firstSrv===t?TC[t]:'var(--bdr)'}`,
+          color:firstSrv===t?(t===0?'#085041':'#4A1B0C'):'var(--text)',
+          fontWeight:firstSrv===t?500:400,
+        }},tNames[t]))
+      )
+    ),
+    h('button',{onClick:startGame,style:{width:'100%',padding:'12px 0',background:'#1D9E75',
+      color:'#fff',border:'none',borderRadius:10,fontSize:15,fontWeight:600}},'Start Game'),
+  );
+
+  // ── GAME ──────────────────────────────────────────────────────────────────
+  if(!game)return null;
+  return h('div',{id:'game',className:rotated?'rotated':''},
+    // top bar
+    h('div',{style:{flexShrink:0,background:'var(--bg-surf)',borderRadius:8,padding:'4px 8px',display:'flex',flexDirection:'column',gap:4}},
+      // scores
+      h('div',{style:{display:'flex'}},
+        h('div',{style:{flex:1}},
+          h('div',{style:{fontSize:10,color:'var(--text-mut)',lineHeight:1}},game.cfg[0].name),
+          h('div',{style:{fontSize:28,fontWeight:500,color:TS[0],lineHeight:1.1}},game.pts[0])
+        ),
+        h('div',{style:{flex:1,textAlign:'right'}},
+          h('div',{style:{fontSize:10,color:'var(--text-mut)',lineHeight:1}},game.cfg[1].name),
+          h('div',{style:{fontSize:28,fontWeight:500,color:TS[1],lineHeight:1.1}},game.pts[1])
+        )
+      ),
+      // controls
+      h('div',{style:{display:'flex',gap:4}},
+        h('button',{onClick:()=>setRotated(r=>!r),style:ctrl(rotated,'#1D9E75')},rotated?'↻ on':'↻ off'),
+        h('button',{onClick:()=>setDark(d=>!d),style:{...ctrl(false,''),padding:'4px 8px',flex:'none'}},dark?'☀':'☾'),
+        h('button',{onClick:()=>{if(window.confirm('Undo last action?'))undo();},disabled:!hist.length,
+          style:{...ctrl(false,''),opacity:hist.length?1:0.4}},'↩ Undo'),
+        h('button',{onClick:handleSwapSides,style:ctrl(false,'')},'⇄ Sides'),
+        h('button',{onClick:()=>{if(window.confirm('End game and start over?')){setPhase('roster');setGame(null);setHist([]);setSubSel(null);}},
+          style:ctrl(false,'')},'New'),
+      )
+    ),
+    // manual rotate per team
+    h('div',{style:{flexShrink:0,display:'flex',gap:4}},
+      h('div',{style:{flex:1,display:'flex',justifyContent:'flex-start'}},
+        h('button',{onClick:()=>rotateTeam(0),style:{padding:'3px 12px',fontSize:11,color:TC[0],borderColor:TC[0]}},'↻ '+game.cfg[0].name)
+      ),
+      h('div',{style:{flex:1,display:'flex',justifyContent:'flex-end'}},
+        h('button',{onClick:()=>rotateTeam(1),style:{padding:'3px 12px',fontSize:11,color:TC[1],borderColor:TC[1]}},'↻ '+game.cfg[1].name)
+      )
+    ),
+    h(Court,{game,onTapChip:tapChip}),
+    subSel&&h(SubPanel,{game,sel:subSel,onConfirm:confirmSub,onCancel:()=>setSubSel(null)}),
+    // +1 buttons
+    h('div',{style:{flexShrink:0,display:'flex',gap:8}},
+      ...[0,1].map(t=>h('button',{key:t,onClick:()=>score(t),style:{
+        flex:1,padding:'14px 0',background:TS[t],color:'#fff',
+        border:'none',borderRadius:10,fontSize:20,fontWeight:700,
+      }},'+1 '+game.cfg[t].name))
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>
