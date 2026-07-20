@@ -477,8 +477,6 @@ function App(){
         h('div',{key:'l'+lp,style:{fontSize:13,fontWeight:500,color:'var(--text-mut)',textAlign:'center',paddingRight:4}},pos),
         ...[0,1].map(t=>{
           const used=new Set(lineups[t].filter((_,i)=>i!==lp).filter(v=>v!==null));
-          const opts=rosters[t].map((p,i)=>({p,i})).filter(({i})=>!used.has(i)&&p.jersey.trim()!==''.trim());
-          // filter to players with jersey numbers
           const vopts=rosters[t].map((p,ri)=>({p,ri})).filter(({ri,p})=>p.jersey.trim()&&!used.has(ri));
           return h('select',{key:t+lp,
             value:lineups[t][lp]===null?'':lineups[t][lp],
