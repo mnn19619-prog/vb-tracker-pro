@@ -78,6 +78,7 @@ const GA=[[4,3],[5,2],[0,1]]; // Team A court grid (posIdx)
 const GB=[[1,0],[2,5],[3,4]]; // Team B court grid (posIdx)
 const TC=['#1D9E75','#993C1D']; // team accent
 const TS=['#1D9E75','#D85A30']; // score colors
+const BACK_ROW=new Set([0,4,5]); // court posIdx values physically in back row (pos I,V,VI)
 
 // ─── game logic ───────────────────────────────────────────────────────────────
 // lineup position from court-grid posIdx + rotation
@@ -115,6 +116,32 @@ function swapSides(game){
     teams:[game.teams[1],game.teams[0]],
     pts:[game.pts[1],game.pts[0]],
     srv:1-game.srv};
+}
+
+// ── libero mechanics (separate from regular sub system) ──────────────────────
+// Returns roster index of the libero player, or -1 if no libero on this team
+function liberoRiOf(game,t){ return game.cfg[t].roster.findIndex(p=>p.isLibero); }
+
+// Is the libero currently on court?
+function liberoOnCourt(game,t){
+  const ri=liberoRiOf(game,t);
+  return ri>=0 && game.teams[t].lineup.includes(ri);
+}
+
+// Libero enters court: replaces player at lineup position lp
+function applyLiberoIn(game,t,lp){
+  const tm=game.teams[t];
+  const libRi=liberoRiOf(game,t);
+  const outRi=tm.lineup[lp];
+  const nl=[...tm.lineup]; nl[lp]=libRi;
+  return{...game,teams:game.teams.map((x,i)=>i!==t?x:{...x,lineup:nl,liberoReplacedRi:outRi})};
+}
+
+// Libero exits court: restores the player they replaced
+function applyLiberoOut(game,t,lp){
+  const tm=game.teams[t];
+  const nl=[...tm.lineup]; nl[lp]=tm.liberoReplacedRi;
+  return{...game,teams:game.teams.map((x,i)=>i!==t?x:{...x,lineup:nl,liberoReplacedRi:null})};
 }
 
 // score a point
@@ -231,7 +258,7 @@ function Court({game,onTapChip}){
           const isLibero=pl?.isLibero||false;
           return h(Chip,{key:col,jersey:pl?.jersey||'?',name:pl?.name||'',
             posLabel:ROMAN[lp],isServer,isSub,isLibero,accent:TC[0],fontSize:fs,
-            onTap:()=>onTapChip(0,lp)});
+            onTap:()=>onTapChip(0,lp,cp)});
         }),
         // NET
         h('div',{style:{width:22,flexShrink:0,display:'flex',alignItems:'stretch',justifyContent:'center',padding:'2px 0'}},
@@ -247,7 +274,7 @@ function Court({game,onTapChip}){
           const isLibero=pl?.isLibero||false;
           return h(Chip,{key:col,jersey:pl?.jersey||'?',name:pl?.name||'',
             posLabel:ROMAN[lp],isServer,isSub,isLibero,accent:TC[1],fontSize:fs,
-            onTap:()=>onTapChip(1,lp)});
+            onTap:()=>onTapChip(1,lp,cp)});
         })
       )
     )
@@ -256,15 +283,31 @@ function Court({game,onTapChip}){
 
 // ── SubPanel ──────────────────────────────────────────────────────────────────
 function SubPanel({game,sel,onConfirm,onCancel}){
-  // sel = {t, lp}
-  const{t,lp}=sel;
+  const{t,lp,cp}=sel;
   const team=game.teams[t];
   const roster=game.cfg[t].roster;
   const currentRi=team.lineup[lp];
   const current=roster[currentRi];
+  const libRi=liberoRiOf(game,t);
+  const libOnCourt=liberoOnCourt(game,t);
+  const currentIsLibero=libRi>=0&&currentRi===libRi;
+  const isBackRow=BACK_ROW.has(cp);
+  const showLiberoIn=isBackRow&&!currentIsLibero&&libRi>=0&&!libOnCourt;
   const elg=eligible(game,t,lp);
 
-  function badge(ri){
+  function subBtn(ri,kind,label,bdgEl){
+    const pl=roster[ri];
+    return h('button',{key:ri+kind,onClick:()=>onConfirm(ri,kind),style:{
+      display:'flex',flexDirection:'column',alignItems:'center',
+      padding:'8px 14px',border:`1.5px solid ${TC[t]}`,borderRadius:8,
+      background:'var(--bg-surf)',gap:2,minWidth:60,
+    }},
+      h('span',{style:{fontSize:18,fontWeight:700,color:'var(--text)'}},'#'+pl.jersey),
+      pl.name&&h('span',{style:{fontSize:10,color:'var(--text-mut)'}},pl.name),
+      bdgEl,
+    );
+  }
+  function regularBadge(ri){
     if(team.start[lp]===ri) return h('span',{className:'bdg bdg-srv'},'original');
     if(team.locks[ri]!==undefined) return h('span',{className:'bdg bdg-sub'},'↩'+ROMAN[lp]);
     return h('span',{className:'bdg bdg-new'},'new');
@@ -276,25 +319,39 @@ function SubPanel({game,sel,onConfirm,onCancel}){
   }},
     h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}},
       h('div',{style:{fontSize:12,color:'var(--text-sub)'}},
-        `Sub at position ${ROMAN[lp]} — #${current?.jersey} ${current?.name||''}`.trim()),
+        (currentIsLibero?'Libero exit — ':'Sub at ')+`${ROMAN[lp]} — #${current?.jersey||'?'} ${current?.name||''}`.trim()),
       h('button',{onClick:onCancel,style:{padding:'2px 10px',fontSize:13}},'✕')
     ),
-    elg.length===0
-      ? h('div',{style:{fontSize:12,color:'var(--text-mut)',padding:'6px 0'}},'No eligible substitutes')
-      : h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
-          elg.map(ri=>{
-            const pl=roster[ri];
-            return h('button',{key:ri,onClick:()=>onConfirm(ri),style:{
-              display:'flex',flexDirection:'column',alignItems:'center',
-              padding:'8px 14px',border:`1.5px solid ${TC[t]}`,borderRadius:8,
-              background:'var(--bg-surf)',gap:2,minWidth:60,
-            }},
-              h('span',{style:{fontSize:18,fontWeight:700,color:'var(--text)'}},'#'+pl.jersey),
-              pl.name&&h('span',{style:{fontSize:10,color:'var(--text-mut)'}},(pl.name)),
-              badge(ri),
-            );
-          })
-        )
+
+    // ── Case 1: current chip IS the libero → only option is exit (restore replaced player)
+    currentIsLibero&&h('div',null,
+      h('div',{style:{fontSize:11,color:'var(--text-mut)',marginBottom:5}},
+        'Libero exits — original player returns (unlimited, no sub count)'),
+      team.liberoReplacedRi!==null
+        ? subBtn(team.liberoReplacedRi,'libero-out',null,h('span',{className:'bdg bdg-srv'},'restore'))
+        : h('div',{style:{fontSize:12,color:'#c00'}},'Error: no replaced player recorded')
+    ),
+
+    // ── Case 2: libero available and chip is back row → show libero swap option first
+    showLiberoIn&&h('div',{style:{marginBottom:8}},
+      h('div',{style:{fontSize:11,color:'var(--text-mut)',marginBottom:5}},
+        '🔄 Libero swap (unlimited — does not count as regular sub)'),
+      subBtn(libRi,'libero-in',null,h('span',{className:'bdg bdg-lib'},'LIB')),
+      (elg.length>0)&&h('div',{style:{borderTop:'1px solid var(--bdr)',margin:'8px 0'}}),
+    ),
+
+    // ── Case 3: regular eligible subs
+    !currentIsLibero&&(
+      elg.length===0
+        ? (!showLiberoIn&&h('div',{style:{fontSize:12,color:'var(--text-mut)',padding:'4px 0'}},
+            isBackRow?'No eligible substitutes':'Front-row position — libero cannot enter here'))
+        : h('div',null,
+            elg.length>0&&showLiberoIn&&h('div',{style:{fontSize:11,color:'var(--text-mut)',marginBottom:5}},'Regular substitution'),
+            h('div',{style:{display:'flex',gap:6,flexWrap:'wrap'}},
+              elg.map(ri=>subBtn(ri,'regular',null,regularBadge(ri)))
+            )
+          )
+    ),
   );
 }
 
@@ -390,6 +447,7 @@ function App(){
       lineup:[...lineups[t].map(Number)],  // mutable current lineup
       rotation:0,
       locks:{},                            // subLocks: {rosterIdx: lineupPos}
+      liberoReplacedRi:null,               // who libero is currently replacing (null=libero off court)
     }));
     const g={
       cfg:[0,1].map(t=>({name:tNames[t],roster:rosters[t]})),
@@ -414,13 +472,16 @@ function App(){
     setSubSel(null);setHist(h=>[...h,game]);
     setGame(prev=>({...prev,teams:prev.teams.map((tm,i)=>i!==t?tm:{...tm,rotation:(tm.rotation+1)%6})}));
   }
-  function tapChip(t,lp){
+  function tapChip(t,lp,cp){
     if(subSel&&subSel.t===t&&subSel.lp===lp){setSubSel(null);return;}
-    setSubSel({t,lp});
+    setSubSel({t,lp,cp});
   }
-  function confirmSub(incoming){
+  function confirmSub(incoming,kind){
+    // kind: 'regular' | 'libero-in' | 'libero-out'
     setHist(h=>[...h,game]);
-    setGame(prev=>applySub(prev,subSel.t,subSel.lp,incoming));
+    if(kind==='libero-in')  setGame(prev=>applyLiberoIn(prev,subSel.t,subSel.lp));
+    else if(kind==='libero-out') setGame(prev=>applyLiberoOut(prev,subSel.t,subSel.lp));
+    else setGame(prev=>applySub(prev,subSel.t,subSel.lp,incoming));
     setSubSel(null);
   }
 
