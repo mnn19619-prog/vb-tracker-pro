@@ -41,10 +41,12 @@
     .bdg-srv{background:#FAEEDA;color:#854F0B;border:1px solid #BA7517}
     .bdg-sub{background:#EEEDFE;color:#534AB7;border:1px solid #7F77DD}
     .bdg-lib{background:#E6F4FF;color:#0052A3;border:1px solid #5BA4E0}
+    .bdg-set{background:#EEEDFE;color:#534AB7;border:1px solid #7F77DD}
     .bdg-new{background:#E8F8EE;color:#1D7A50;border:1px solid #5CC48A}
     html[data-dark] .bdg-srv{background:#412402;color:#FAC775;border-color:#EF9F27}
     html[data-dark] .bdg-sub{background:#26215C;color:#CECBF6;border-color:#AFA9EC}
     html[data-dark] .bdg-lib{background:#0A2540;color:#7AC5F8;border-color:#3A8FD0}
+    html[data-dark] .bdg-set{background:#26215C;color:#CECBF6;border-color:#AFA9EC}
     html[data-dark] .bdg-new{background:#0A2A18;color:#5CC48A;border-color:#3A9465}
     /* chip highlight states */
     .chip-srv{background:#FAEEDA!important;border-color:#BA7517!important}
@@ -79,6 +81,15 @@ const GB=[[1,0],[2,5],[3,4]]; // Team B court grid (posIdx)
 const TC=['#1D9E75','#993C1D']; // team accent
 const TS=['#1D9E75','#D85A30']; // score colors
 const BACK_ROW=new Set([0,4,5]); // court posIdx values physically in back row (pos I,V,VI)
+const isSetter=n=>n&&n.toLowerCase().includes('(s)');
+
+// current lineup position (roman numeral) of the setter for team t
+function setterPosOf(game,t){
+  const tm=game.teams[t];
+  const roster=game.cfg[t].roster;
+  const lp=tm.lineup.findIndex(ri=>isSetter(roster[ri]?.name));
+  return lp>=0?ROMAN[lp]:null;
+}
 
 // ─── game logic ───────────────────────────────────────────────────────────────
 // lineup position from court-grid posIdx + rotation
@@ -173,7 +184,7 @@ function calcFont(labels,chipW){
 const{useState,useRef,useEffect,createElement:h}=React;
 
 // ── Chip ──────────────────────────────────────────────────────────────────────
-function Chip({jersey,name,posLabel,isServer,isSub,isLibero,accent,onTap,fontSize}){
+function Chip({jersey,name,posLabel,isServer,isSub,isLibero,isSetterPlayer,accent,onTap,fontSize}){
   const srv=isServer;
   const cls=['chip-base',srv?'chip-srv':isSub?'chip-sub':''].filter(Boolean).join(' ');
   return h('div',{onClick:onTap,className:cls,style:{
@@ -183,19 +194,17 @@ function Chip({jersey,name,posLabel,isServer,isSub,isLibero,accent,onTap,fontSiz
     borderRadius:8,padding:'3px 3px 3px 3px',textAlign:'center',
     display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',overflow:'hidden',
   }},
-    // top label row: position + badges
     h('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',gap:2,marginBottom:1}},
       h('span',{style:{fontSize:9,color:'var(--text-mut)',lineHeight:1}},posLabel),
       isServer&&h('span',{className:'bdg bdg-srv'},'★'),
+      isSetterPlayer&&h('span',{className:'bdg bdg-set'},'S'),
       isSub&&h('span',{className:'bdg bdg-sub'},'SUB'),
       isLibero&&h('span',{className:'bdg bdg-lib'},'LIB'),
     ),
-    // jersey number — primary
     h('div',{className:'jnum',style:{
       fontSize:fontSize||20,fontWeight:600,lineHeight:1.1,
       color:'var(--text)',whiteSpace:'nowrap',maxWidth:'100%',overflow:'hidden',
     }},'#'+jersey),
-    // name — optional secondary
     name&&h('div',{style:{
       fontSize:9,color:'var(--text-mut)',lineHeight:1.1,marginTop:1,
       whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',width:'100%',textAlign:'center',
@@ -237,11 +246,13 @@ function Court({game,onTapChip}){
         h('div',{style:{width:7,height:7,borderRadius:'50%',background:TC[0],flexShrink:0}}),
         h('span',{style:{fontSize:12,fontWeight:500,color:'var(--text)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},names[0]),
         game.srv===0&&h('span',{className:'srv-badge'},'serving'),
+        setterPosOf(game,0)&&h('span',{className:'bdg bdg-set'},'S:'+setterPosOf(game,0)),
       ),
       h('div',{style:{width:22,flexShrink:0}}),
       // Team B info
       h('div',{style:{flex:1,display:'flex',alignItems:'center',gap:3,justifyContent:'flex-end',minWidth:0,overflow:'hidden'}},
         game.srv===1&&h('span',{className:'srv-badge'},'serving'),
+        setterPosOf(game,1)&&h('span',{className:'bdg bdg-set'},'S:'+setterPosOf(game,1)),
         h('span',{style:{fontSize:12,fontWeight:500,color:'var(--text)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},names[1]),
         h('div',{style:{width:7,height:7,borderRadius:'50%',background:TC[1],flexShrink:0}}),
       ),
@@ -258,8 +269,9 @@ function Court({game,onTapChip}){
           const isServer=cp===0&&game.srv===0;
           const isSub=game.teams[0].locks[ri]!==undefined;
           const isLibero=pl?.isLibero||false;
+          const isSetterPlayer=isSetter(pl?.name||'');
           return h(Chip,{key:col,jersey:pl?.jersey||'?',name:pl?.name||'',
-            posLabel:ROMAN[lp],isServer,isSub,isLibero,accent:TC[0],fontSize:fs,
+            posLabel:ROMAN[lp],isServer,isSub,isLibero,isSetterPlayer,accent:TC[0],fontSize:fs,
             onTap:()=>onTapChip(0,lp,cp)});
         }),
         // NET
@@ -274,8 +286,9 @@ function Court({game,onTapChip}){
           const isServer=cp===0&&game.srv===1;
           const isSub=game.teams[1].locks[ri]!==undefined;
           const isLibero=pl?.isLibero||false;
+          const isSetterPlayer=isSetter(pl?.name||'');
           return h(Chip,{key:col,jersey:pl?.jersey||'?',name:pl?.name||'',
-            posLabel:ROMAN[lp],isServer,isSub,isLibero,accent:TC[1],fontSize:fs,
+            posLabel:ROMAN[lp],isServer,isSub,isLibero,isSetterPlayer,accent:TC[1],fontSize:fs,
             onTap:()=>onTapChip(1,lp,cp)});
         })
       )
